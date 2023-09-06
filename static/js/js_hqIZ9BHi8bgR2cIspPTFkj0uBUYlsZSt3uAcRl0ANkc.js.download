@@ -1,0 +1,2144 @@
+/**
+ * @file
+ * Defines the ajax command for updating product urls on variation selection.
+ */
+
+(function (Drupal) {
+
+  'use strict';
+
+  /**
+   * Command to update the current url on variation selection.
+   *
+   * @param {Drupal.Ajax} ajax
+   *   {@link Drupal.Ajax} object created by {@link Drupal.ajax}.
+   * @param {object} response
+   *   The response from the Ajax request.
+   * @param {string} [response.variation_id]
+   *   The variation ID that should be updated in the url.
+   */
+  Drupal.AjaxCommands.prototype.updateProductUrl = function (ajax, response) {
+    var params = new URLSearchParams(window.location.search);
+    params.set('v', response.variation_id);
+    window.history.replaceState({}, document.title, window.location.pathname + '?' + params.toString());
+  }
+
+})(Drupal);
+;
+/**
+ * @file
+ * Defines Javascript behaviors for the commerce cart module.
+ */
+
+/**
+ * @file
+ * DDefines Javascript behaviors for the commerce cart module.
+ *
+ * This library is used to trigger all events related to display of blocks in
+ *   the reservation form.
+ *
+ *
+ *
+ * -----------------------
+ *     DOM DEFINITIONS
+ * -----------------------
+ *
+ * To work this library uses CSS attributes and classes that must be present in
+ *   the DOM.
+ *
+ *   - .js-list-categories :
+ *     Line category.
+ *
+ *   - .js-btn-cancel-choosen-category :
+ *     This button is used to cancel the choice of a category.
+ *
+ *   - .js-click-mode-auto' :
+ *     This button is used to trigger the display of the rate selection block
+ *   in express mode.
+ *
+ *   - .js-hfppt-slider-range-price :
+ *     This block is used when generating the slider range .
+ *
+ *   - .js-show-view-cam :
+ *     Bloc view cam
+ *
+ * ------------
+ *    EVENTS
+ * ------------
+ *
+ * This lib trigger some events. These events are used by the lib itself and
+ *   can be used by external code.
+ *
+ *     @param {Integer} id
+ *       Category id
+ *     @param {String} name
+ *       Category name
+ *     @param {String} color
+ *       hexadecimal color code of the categories
+ *     @param {Float} min_price
+ *       Category min price
+ *     @param {Float} max_price
+ *       Category max price
+ *     @param {String} currency
+ *       Category currency
+ *     @param {Integer} dispo
+ *       Number of places remaining in the category
+ *     @param {Longtext} description
+ *       Category description
+ *
+ *   - HTATCFEventUnselectCategory
+ *     This event is triggered when a category is unselected
+ *
+ *   - HTATCFEventSelectModeAuto
+ *     This event is triggered when a mode auto is selected
+ *     @param {Integer} id
+ *       Category id
+ *
+ *   - HTATCFEventSelectMALP
+ *     This event is triggered when a mmalp is selected
+ *     @param {Integer} id
+ *       Category id
+ *
+ *   - HTATCFEventSelectQtyPrices
+ *     This event is triggered when a the quantity rate is selected
+ *     @param {Integer} id_product
+ *       Product id
+ *     @param {Integer} id_cat
+ *       Category id
+ *     @param {Integer} id_type_price
+ *       ProductAttributeValue id
+ *     @param {Integer} qty_select
+ *       quantity selected
+ *
+ *
+ */
+(function ($, Drupal, drupalSettings) {
+  'use strict';
+
+  Drupal.behaviors.hubberCommerceTicketingAddToCart = {
+    selectQuantityLabel: Drupal.t('Select a quantity'),
+    selectCategoryLabel: Drupal.t('Select a category'),
+
+    attach: function (context) {
+      var self = this;
+
+      if (typeof drupalSettings.product_has_stock !== 'undefined' && !drupalSettings.product_has_stock) {
+        $('.ticket-content-filters').addClass('d-none');
+      }
+
+      // Select category from map
+      $('.js-commerce-order-item-hubber-ticketing-add-to-cart-form', context).once('HMAEventSelectCategory-init').on('HMAEventSelectCategory', function (e, cat_id) {
+        var cat = $('.js-list-categories[cat_id=' + cat_id + ']');
+        self.show_category(
+          $(this),
+          cat.attr('cat_id'),
+          cat.attr('data-name'),
+          cat.attr('data-color'),
+          cat.attr('data-price-min'),
+          cat.attr('data-price-min-display'),
+          cat.attr('data-price-max'),
+          cat.attr('data-price-max-display'),
+          cat.attr('data-nb-place'),
+          cat.attr('data-description'),
+          false
+        );  // Auto-select category
+      });
+// When user click on category, show category details.
+      $('.js-category-choose', context).once('category-choice-by-click').on('click', function (e) {
+        var cat = $(this).closest('.js-list-categories');
+        if (cat.attr('data-nb-place') > 0) {
+          var qty_requested = 0;
+          cat.find('.js-quantity-filter-field').each(function () {
+            qty_requested += parseInt($(this).val());
+          });
+          cat.attr('data-qty', qty_requested);
+          if (qty_requested > 1) {
+            $('#commerce-product-ticketing-form').prop('contig', true);
+          }
+          self.show_category(
+            cat.parents('.js-commerce-order-item-hubber-ticketing-add-to-cart-form'),
+            cat.attr('cat_id'),
+            cat.attr('data-name'),
+            cat.attr('data-color'),
+            cat.attr('data-price-min'),
+            cat.attr('data-price-min-display'),
+            cat.attr('data-price-max'),
+            cat.attr('data-price-max-display'),
+            cat.attr('data-nb-place'),
+            cat.attr('data-description'));
+          var blockId = cat.closest('.js-categories-panel').attr('block-id');
+          if (undefined != blockId) {
+            $(document).trigger('HFPPTUnSelectCategories');
+
+            // Go directly to selected block.
+            $('.js-hvsc-map').trigger('HTATCFSelectBlock', blockId);
+          }
+          if (typeof drupalSettings.isMonoBlock !== 'undefined' && drupalSettings.isMonoBlock) {
+            $('.js-hvsc-map').trigger('HTATCFSelectMonoBlock');
+          }
+        }
+      });
+
+      $('#commerce-product-ticketing-form form', context).once('form-submit-init').on('submit', function () {
+        Drupal.behaviors.hubberLoader.displayFullscreenLoader();
+      });
+
+      // Show category details toogle click.
+      $('.js-list-categories[data-nb-place!=0]', context).once('toggle-details').on('click', function (e, force_active) {
+        if ($(this).hasClass('js-category-locked')) {
+          // Open the promo code form popin.
+          $('.js-block-list-categories').trigger('HFPPTTypePriceLoadForm');
+          return;
+        }
+
+        var $container = $('.css-placement-buttons, .category-cta-wrapper');
+        if ($container.is(e.target) || $container.has(e.target).length) {
+          return;
+        }
+        force_active = (typeof force_active !== 'undefined') ? force_active : false;
+        self.toggleActiveCategory($(this), force_active);
+      });
+
+      $('.js-commerce-order-item-hubber-ticketing-add-to-cart-form', context).once('cancel-choosen-category-click').on('click', '.js-btn-cancel-choosen-category', function (e) {
+        e.preventDefault();
+        // Return to category list.
+        $('.js-commerce-order-item-hubber-ticketing-add-to-cart-form').trigger('HTATCFEventReturnToCategoryList');
+        $('.js-hvsc-map').trigger('HTATCFEventBackToMap');  // Send cancel event to maps
+        $('.js-block-list-categories').trigger('HFPPTUnSelectCategory'); // The selected category is not anymore.
+      });
+
+      // Return to category list
+      $('.js-commerce-order-item-hubber-ticketing-add-to-cart-form', context).once('HTATCFEventReturnToCategoryList-init').on('HTATCFEventReturnToCategoryList', function (e) {
+        self.return_to_list_categories();
+        $(this).trigger('HTATCFEventUnselectCategory', []);
+      });
+
+      // Sumbit form if the user click on express button.
+      $('.js-category-auto', context).once('js-category-auto-click').on('click', function (e) {
+        // If the user choosed a block, set it in the form.
+        var hvscId = $(this).closest('[hvsc-id]').attr('hvsc-id');
+        var selectedBlock = $('.js-hvsc-map[hvsc-id=' + hvscId + '] .polygon_block_selected');
+        $('#commerce-product-ticketing-form input[name=block_id]').val(
+          1 == selectedBlock.length ? selectedBlock.attr('block-id') : '');
+
+        // Get quantity/price details for this category.
+        var details = {};
+        $(this).closest('.js-list-categories').find('.js-quantity-filter-field').each(function () {
+          details[$(this).attr('data-price-id')] = $(this).val();
+        });
+
+        // Submit the form.
+        self.submitExpressForm($(this).closest('[cat_id]').attr('cat_id'), hvscId, details);
+      });
+
+      // Toggle stadium map
+      $('.plan-toggler', context).once('plan-toggler-click').on('click', function () {
+        $(this).toggleClass('open');
+        $('#commerce-product-ticketing-bloc-content-auto').toggleClass('d-none');
+      });
+
+
+
+      $('.js-back-to-category-list', context).once('toggle-details').on('click', function () {
+        self.return_to_list_categories();
+      });
+
+      // When quantities by price are updated for a category.
+      $('.js-list-categories .input-number-operators').once('cat-qty-update').on('update', function () {
+        var item = $(this).closest('.js-list-categories');
+        var category_id = item.attr('cat_id');
+
+        // Get price data for the current category.
+        var priceData
+          = drupalSettings.hubberVirtualCart.catPriceDatas[$(this).closest('[hvsc-id]').attr('hvsc-id')]
+          [category_id].type_prices;
+
+        // We're going to count quantity and price for this category.
+        var price = 0, total_price = 0;
+        var price_min = null, price_max = null;
+        var qty = 0;
+
+        $('.js-quantity-filter-field', item).each(function () {
+          // Increase total quantity and total price for ths category.
+          var _qty = parseInt($(this).val());
+          if (_qty === 0) {
+            return;
+          }
+          total_price += _qty * priceData[$(this).attr('data-price-id')].price;
+          price = priceData[$(this).attr('data-price-id')].price;
+          if (price_min === null || price < price_min) {
+            price_min = price * 1;
+          }
+          if (price_max === null || price > price_max) {
+            price_max = price * 1;
+          }
+          qty += _qty;
+        });
+
+        var disable_submit = false;
+
+        // If a quantity is defined, show express mode button.
+        if (qty > 0) {
+          // Show price for this category.
+          total_price = Drupal.behaviors.hubberNumberFormatter.formatPrice(total_price, drupalSettings.currency);
+          item.find('.category-total').html(Drupal.t('Total:') + '<span class="total-price-amount">' + total_price + '</span>');
+          item.find('.js-category-auto').prop('disabled', false);
+          item.find('.category-footer').removeClass('d-none');
+        }
+        else {
+          // If not, hide the button.
+          disable_submit = true;
+          item.find('.category-total').empty();
+          item.find('.category-footer').addClass('d-none');
+        }
+
+        const $input = $(this).find('.js-quantity-filter-field');
+        $('#commerce-product-ticketing-form').trigger('HTATCFEventSelectQtyPrices', [$input.attr('data-product-id'), $input.attr('data-category-id'), $input.attr('data-price-id'), parseInt($input.val())]);
+        if (disable_submit) {
+          $(this).closest('.js-list-categories').find('.js-category-auto').prop('disabled', true);
+        }
+      });
+
+      var filterOffsetTop = $('.ticket-content-filters').length ? $('.ticket-content-filters').offset().top : 0;
+      var lastScrollTop = 0;
+
+
+      $(window, context).on('scroll', function () {
+        if (window.innerWidth <= 769) { // Mobile
+          if ($(this).scrollTop() > (filterOffsetTop - $('.btn-more-filters').outerHeight())) {
+            $('.ticket-content-filters').addClass('sticky');
+            if ($('.js-hvsc-map').length > 0) {
+              $('.js-choice-on-map-button').show();
+            }
+          }
+          else {
+            $('.ticket-content-filters').removeClass('sticky');
+            $('.js-choice-on-map-button').hide();
+          }
+        }
+      });
+
+      $('.ticket-content', context).once('scroll').on('scroll', function () {
+        if (window.innerWidth > 769) { // Desktop
+          var currentScrollTop = $(this).scrollTop();
+          var $filters = $(this).find('.ticket-content-filters');
+          var filtersHeight = $filters.outerHeight(true);
+          if (currentScrollTop < lastScrollTop && currentScrollTop >= filtersHeight) {
+            $filters.addClass('sticky');
+          }
+          if (currentScrollTop == 0) {
+            $filters.removeClass('sticky');
+          }
+          lastScrollTop = currentScrollTop;
+        }
+      });
+
+
+
+      // Clkc on "show map" button.
+      $('.js-choice-on-map-button', context).once('js-choice-on-map-button-click').on('click', function () {
+        $('.plan').show();
+        $('.js-choice-on-map-button').hide();
+        $('.bloc_meeting').trigger('mapResize');
+        $('.ticket-header-wrapper').show();
+        window.scroll(0, 0);
+      });
+
+      $(document, context).on('HPCURUnlockPrice', function (e, price_id) {
+        $('.js-commerce-order-item-hubber-ticketing-add-to-cart-form .js-list-categories').each(function() {
+          var cat_id = $(this).attr('cat_id');
+          $(this).find('.js-form-item').each(function() {
+            if ($(this).hasClass('form-item-price-' + price_id) && drupalSettings.priceInfos !== undefined && drupalSettings.priceInfos[cat_id] !== undefined && drupalSettings.priceInfos !== drupalSettings.priceInfos[cat_id][price_id]) {
+              $(this).find('.price-amount').html(drupalSettings.priceInfos[cat_id][price_id]);
+            }
+          });
+        })
+      });
+
+      if (context === document) {
+        $(document).trigger('HFPPTInit');
+      }
+
+    },
+
+    /**
+     * Form submission in express mode.
+     *
+     * @param catId
+     * @param hvscId
+     * @param details
+     */
+    submitExpressForm: function (catId, hvscId, details) {
+      var prices
+        = drupalSettings.hubberVirtualCart.catPriceDatas[hvscId][catId]
+        .type_prices;
+      $('.js-qty-prices').val(0);
+      for (var priceId in details) {
+        // For each price, put chosen quantity in form.
+        var qty = details[priceId];
+        if (qty > 0) {
+          $('[data-drupal-selector="edit-variation-'+ prices[priceId].variation_id+'"]').val(qty);
+        }
+      }
+      $('#commerce-product-ticketing-form form').submit();
+    },
+
+    /**
+     * Show category panel
+     *
+     * @param id
+     * @param name
+     * @param color
+     * @param price_min
+     * @param price_min_display
+     * @param price_max
+     * @param price_max_display
+     * @param nb_place
+     * @param description
+     * @param manual
+     */
+    show_category: function (form, id, name, color, price_min, price_min_display, price_max, price_max_display, nb_place, description, manual = true) {
+      $('.js-block-list-categories', form).hide();
+      $('.select-category-hint, .nb-tickets-hint, .js-back-to-category-list', form).addClass('d-none');
+      $('.js-commerce-order-item-hubber-ticketing-add-to-cart-form fieldset.js-category-wrapper', form).hide();
+
+      //block category generation
+      $('.js-show-choice-panel', form).show();  // Show choice panel
+      $('.js-show-category', form).show();
+      $('.js-show-category .js-show-view-cam', form).show();
+      $('.js-show-category .js-category-title', form).html(name);
+      if (description !== '') {
+        $('.js-show-category .categ_container .categname .infos', form).attr('title', description).css('display', '');
+      }
+      else {
+        $('.js-show-category .categ_container .categname .infos', form).attr('title', '').css('display', 'none');
+      }
+      $('.js-show-category .box', form).css('background-color', color);
+
+      // Select the category and its blocks.
+      $('.js-hvsc-map').trigger('HTATCFEShowCategoryBlocksInfo', [id]);
+      $('.js-block-list-categories').trigger('HFPPTSelectCategory', [id]);
+
+      if ($('.js-show-category .js-btn-select-mode', form).length > 1) {
+        $('.js-show-category .js-btn-select-mode', form).attr('cat-id', id);
+        $('.js-show-category .js-btn-select-mode', form).prop('manual', manual);  // If this category has been choosen
+                                                                                  // manually or not
+      }
+
+      // Display availibilty informations
+      if ($('.polygon_block_selected').length > 0 && manual) {  // if it's a manual choice category, update map information from it
+        $('.js-hvsc-map').trigger('HMAEventUpdateBlockInfos');
+      }
+    },
+    return_to_list_categories: function () {
+      $('.js-block-list-categories').show();
+      $('.js-categories-panel').removeClass('d-none');
+      $('.js-list-categories').removeClass('d-none active').removeAttr('data-qty');
+      $('.js-back-to-category-list').addClass('d-none');
+      $('.nb-tickets-hint').removeClass('d-none');
+      $('.select-category-hint').removeClass('d-none').html(this.selectCategoryLabel);
+      $('.js-show-choice-panel').hide();  // Hide choice panel
+      $('.js-show-category').hide();
+      $('.js-category-wrapper').hide();
+      $('.ticket-content-filters').removeClass('d-none d-lg-flex');
+      $('.js-hvsc-vscart').addClass('d-none');
+      $('.button--add-to-cart').hide();
+      $('.field--name-variations').removeClass('d-none d-lg-block');
+      $('.js-btn-cancel-choosen-block.ticket-block-head-mobile').addClass('d-none');
+      $('.js-show-category .js-btn-select-mode').removeAttr('cat-id');  // Unselect
+                                                                        // category
+      $(document).trigger('HTATCReturnToListCategories');
+    },
+    show_tarif: function (id) {
+      $('.js-show-category .js-show-view-cam').hide();
+      $('.js-commerce-order-item-hubber-ticketing-add-to-cart-form .js-qty-prices').val(0);
+      $('.button--add-to-cart').show();
+      $('.js-commerce-order-item-hubber-ticketing-add-to-cart-form').find('.js-category-' + id).show();
+    },
+    toggleActiveCategory: function ($category_selector, force_active) {
+      var $all_categories = $('.js-list-categories');
+      $all_categories.removeClass('d-none');
+      if (force_active || ! $category_selector.hasClass('active')) {
+        $category_selector.addClass('active');
+        $all_categories.not('.active').addClass('d-none');
+        $('.js-back-to-category-list').removeClass('d-none');
+        $('.select-category-hint').html(this.selectQuantityLabel);
+        $(document).trigger('HTATCCategorySelected', [$category_selector.attr('cat_id')]);
+      }
+      else {
+        this.return_to_list_categories();
+      }
+    }
+  };
+})(jQuery, Drupal, drupalSettings);
+;
+/**
+ * @file
+ * Defines Javascript behaviors for the hubber virtual cart.
+ *
+ * This library allows a user to choose the ticketing products he wants to buy
+ *   from an interactive map (map). The user chooses his seats on the map. If
+ *   multi prices are available for this seat, he also chooses his price. Once
+ *   these choices are made the seat is added to the virtual seat cart
+ *   (vscart). The user can administer his virtual cart as he wishes by adding
+ *   / removing seats. When the user has finished, he validate his virtual
+ *   cart. That trigger the real reservation of his ticketing products.
+ *
+ * -----------------------
+ *     DOM DEFINITIONS
+ * -----------------------
+ *
+ * To work this library uses CSS attributes and classes that must be present in
+ *   the DOM.
+ *
+ *   - hvsc-id :
+ *     This attribute must be set on DOM elements containing the map and the
+ *   cart. It identifies the instance of the hubberVirtualSeatCart. It allows
+ *   to link the right map to the right cart. If several instances are present
+ *   in the DOM, it allows to distinguish the instances. Usually this hvsc-id
+ *   corresponds to the id of the hubber product for which the vscart is
+ *   activated.
+ *
+ *   - .js-hvsc-map :
+ *     This class must be set on DOM elements containing maps.
+ *     Usually this is a div.
+ *     This div must have 'hvsc-id' attribute correctly set.
+ *     This div contains the elements of the DOM representing seats
+ *
+ *   - .js-hvsc-seat :
+ *     This class must be set on DOM elements representing seats.
+ *     Usually those are svg polygon elements.
+ *     A DOM element representing a seat must have many attributes. These
+ *   attributes describe the seat.
+ *
+ *     Seat attributes :
+ *
+ *       Description attributes :
+ *         id : CSS id in 'seat-map-{seat_id}' format
+ *         category-id : Hubber category id of the product
+ *         place : Number (or identifier) of the seat in the venue
+ *         rank : Number (or identifier) of the rank in the venue
+ *         access : Number (or identifier) of the access in the venue (door
+ *   number for example) provider-block-id : Block id coming from the provider
+ *   provider-seat-id : Seat id coming from the provider hubber-seat-id : Seat
+ *   id coming from the hubber table seat_mode_seat
+ *
+ *       svg attributes :
+ *         points : Coords of the SVG shape.
+ *         shape : SVG shape type. Usualy 'poly'
+ *         fill :  Background color of the SVG shape
+ *         stroke : Border color of the SVG shape
+ *         stroke-width : Border with of the SVG shape
+ *
+ *      @see getSeatFromMap()
+ *
+ *      In addition to the mandatory class js-hvsc-seat, a DOM seat element can
+ *   have others classes representing the state(s) of the seat. These classes
+ *   are used to control the display of the seat on the map. Available classes
+ *   are :
+ *       - 'selected' : The seat is selected on the map
+ *       - 'incart' : The seat is in vscart
+ *       - 'unavailable' : The seat is unavailable
+ *      These classes can be used in combination on the same seat.
+ *
+ *     @see stateSeatOnMap()
+ * *
+ *   - #js-hvsc-prices-dialog-{hvsc_id}' :
+ *     When choice price is in 'popin' mode, the DOM must contain a div with
+ *   this id. jQuery UI dialog use this div to manage price choice popin.
+ *
+ *   - .js-hvsc-vscart :
+ *     This class must be set on the DOM element containing the cart
+ *     Usually this is a div.
+ *     This div must have 'hvsc-id' attribute correctly set.
+ *     This div contains the elements of the DOM representing different part of
+ *   the cart :
+ *
+ *     - .js-hvsc-vscart-detail : Details cart : A div contains table of the
+ *   seats in the cart :
+ *           .js-hvsc-vscart-item : class set on tr element of the table. Each
+ *   tr element contains :
+ *             .js-hvsc-vscart-item-seat-detail : class set on td element
+ *   containing seat detail (number - rank - access)
+ *               .js-hvsc-vscart-item-category : class set on td element
+ *   containing the name of category of the seat.
+ *               .js-hvsc-vscart-item-type-price : class set on td element
+ *   containing the name of type price of the seat.
+ *               .js-hvsc-vscart-item-price : class set on td element
+ *   containing the price (amount) of seat.
+ *              .js-hvsc-vscart-item-delete : class set on td element used to
+ *   triggering the remove seat from cart.
+ *     - .js-hvsc-vscart-total : Total : A div contains total amount of the
+ *   cart
+ *     - .js-hvsc-vscart-destroy : Destroy cart button : A clickable element
+ *   for triggering the emptying of cart
+ *     - .js-hvsc-vscart-validate : Validate cart button : A clickable element
+ *   for triggering the validation of cart
+ *
+ * --------------------
+ *    VSCARTS OBJECT
+ * ---------------------
+ *
+ * This lib use javascript object to store the vscarts.
+ * The key of storage is Drupal.hubber.vscart.[hvsc_id].
+ * A vscart is a collection of seat objects keyring by hubber_seat_id
+ * A seat object contains all properties of the seat.
+ * These properties come from the DOM or are retrieved in the
+ *   drupalSettings.hubberVirtualCart.catPriceDatas object and set on the
+ *   seat object when the user makes a choice (price choice popin).
+ *
+ * Structure of Drupal.hubber.vscart storage object :
+ *     { ​​
+ *       [hvsc_id]: {
+ *         [hubber_seat_id]: {
+ *           'dom_id': "[Id of the seat element in the DOM]", // Come from the
+ *   DOM
+ *           'category_id': "[Id of the category]", // Come from the DOM
+ *           'category_name': "[Name of the category]", //  Come from the
+ *   drupalSettings
+ *           'category_color': "[Color code of the category]", //  Come from
+ *   the drupalSettings
+ *           'type_price_id': "[Id of the type price]", //  Come from the
+ *   drupalSettings
+ *           'type_price_name': "[Name of the type price]", //  Come from the
+ *   drupalSettings
+ *           'price': "[The price (amount)]", // Come from the drupalSettings
+ *           'place': "[Number (or identifier) of the seat in the venue]", //
+ *   Come from the DOM
+ *           'rank': "[Number (or identifier) of the rank in the venue]",  //
+ *   Come from the DOM
+ *           'access': "[Number (or identifier) of the access in the venue
+ *   (door number for example)]", // Come from the DOM
+ *           'provider_block_id': "[Block id coming from the provider]",  //
+ *   Come from the DOM
+ *           'provider_seat_id': "[Seat id coming from the provider]", // Come
+ *   from the DOM
+ *           'hubber_seat_id': "[Seat id coming from the hubber seat_mode_seat
+ *   table]", // Come from the DOM
+ *         }
+ *       }
+ *     }
+ *
+ * Example :
+ *     {
+ *       2876: {
+ *         2: {
+ *           'dom_id': "seat-map-2",
+ *           'category_id': "11",
+ *           'category_name': "Category 1",
+ *           'category_color': "#426f96",
+ *           'type_price_id': "20",
+ *           'type_price_name': "Full",
+ *           'price': "32.5",
+ *           'place': "02",
+ *           'rank': "A",
+ *           'access': "B5",
+ *           'provider_block_id': "231",
+ *           'provider_seat_id': "1256",
+ *           'hubber_seat_id': "9876",
+ *         },
+ *         27: {
+ *           'dom_id': "seat-map-27",
+ *           'category_id': "12",
+ *           'category_name': "Category 2",
+ *           'category_color': "#518538",
+ *           'type_price_id': "10",
+ *           'type_price_name': "Subcribtion",
+ *           'price': "10",
+ *           'place': "27",
+ *           'rank': "H",
+ *           'access': "B5",
+ *           'provider_block_id': "231",
+ *           'provider_seat_id': "1566",
+ *           'hubber_seat_id': "10322",
+ *         },
+ *       }
+ *     }
+ *
+ * @see 'DOM DEFINITION' section, getSeatFromMap() and
+ *   buildSeatPricesChoicePopin() for more information.
+ *
+ *
+ * ------------
+ *    EVENTS
+ * ------------
+ *
+ * This lib trigger some events. These events are used by the lib itself and
+ *   can be used by external code.
+ *
+ *   - VSCartSeatSelectedEvent
+ *     This event is trigger when a seat has been selected on the map
+ *     @param {Object} e
+ *       The event object
+ *     @param {Integer} hvsc_id
+ *       Id of hubberVirtualSeatCart instance that have trigger the event.
+ *     @param {Object} seat
+ *       The seat object that has been selected on the map.
+ *
+ *   - VSCartSeatDeselectedEvent
+ *     This event is trigger when a seat has been deselected on the map
+ *     @param {Object} e
+ *       The event object
+ *     @param {Integer} hvsc_id
+ *       Id of hubberVirtualSeatCart instance that have trigger the event.
+ *     @param {Object} seat
+ *       The seat object that has been deselected on the map.
+ *
+ *   - VSCartSeatAddedEvent
+ *     This event is trigger when a seat has been added to the vscart
+ *     @param {Object} e
+ *       The event object
+ *     @param {Integer} hvsc_id
+ *       Id of hubberVirtualSeatCart instance that have trigger the event.
+ *     @param {Object} seat
+ *       The seat object that has been added to the vscart.
+ *
+ *   - VSCartSeatRemovedEvent
+ *     This event is trigger when a seat has been removed from the vscart
+ *     @param {Object} e
+ *       The event object
+ *     @param {Integer} hvsc_id
+ *       Id of hubberVirtualSeatCart instance that have trigger the event.
+ *     @param {Object} seat
+ *       The seat object that has been seat has been removed from the vscart.
+ *
+ *   - VSCartDestroyedEvent
+ *     This event is trigger when a vscart has been empty
+ *     @param {Object} e
+ *       The event object
+ *     @param {Integer} hvsc_id
+ *       Id of hubberVirtualSeatCart instance that have trigger the event.
+ *
+ *   - VSCartValidatedEvent
+ *     This event is trigger when a vscart has been validated
+ *     @param {Object} e
+ *       The event object
+ *     @param {Integer} hvsc_id
+ *       Id of hubberVirtualSeatCart instance that have trigger the event.
+ *     @param {Object} vscart
+ *       The vscart object that has been validate.
+ *
+ *   - updateVSCart
+ *     This event is trigger when a vscart has been updated
+ *     @param {Object} e
+ *       The event object
+ *     @param {Integer} hvsc_id
+ *       Id of hubberVirtualSeatCart instance that have trigger the event.
+ *     @param {Object} vscart
+ *       The vscart object that has been updated.
+ *
+ */
+(function ($, Drupal, drupalSettings) {
+  'use strict';
+  Drupal.behaviors.hubberVirtualCart = {
+    // The virtual carts storage.
+    carts: {},
+
+    /**
+     * Attache all events when DOM is ready.
+     *
+     * @return null
+     */
+    attach: function (context) {
+      var self = this;
+      self.init();
+    },
+
+    /**
+     * Find all Vscarts declared in the DOM and, for each, initilize map and
+     * vscart display
+     *
+     * @return null
+     */
+    init: function () {
+      $(document).trigger('VSCartInitEvent'); // The virtual cart is ready
+    },
+
+    /**
+     * Get in DOM all vscart id defined
+     *
+     * @param {Integer} hvsc_id
+     *   id of hubberVirtualSeatCart instance in the DOM.
+     * @return {Array} carts
+     *   array of all vscart ids
+     */
+    getAllVSCarts: function () {
+      var carts = [];
+      $('.js-hvsc-map[hvsc-id]').each(function () {
+        carts.push($(this).attr('hvsc-id'));
+      });
+      return carts;
+    },
+
+    /**
+     * Get content of vscart given
+     *
+     * @param {Integer} hvsc_id
+     *   id of hubberVirtualSeatCart instance in the DOM.
+     * @return {Object} cart
+     *   vscart content
+     */
+    getVSCart: function (hvsc_id) {
+      if (undefined == this.carts[hvsc_id]) {
+        this.carts[hvsc_id] = {};
+      }
+      return this.carts[hvsc_id];
+    },
+
+    /**
+     * Get number of content of vscart given
+     *
+     * @param {Integer} hvsc_id
+     *   id of hubberVirtualSeatCart instance in the DOM.
+     * @return {Integer}
+     *   length of vscart content
+     */
+    getVSCartLenght: function (hvsc_id) {
+      var cart  = this.getVSCart(hvsc_id);
+      return Object.keys(cart).length;
+    },
+
+    /**
+     * Add seat given to the vscart given
+     *
+     * @param {Integer} hvsc_id
+     *   id of hubberVirtualSeatCart instance in the DOM.
+     * @return {Object} seat
+     *   seat object usable by this lib.
+     * @see getSeatFromMap() for the description of seat object.
+     */
+    addToVSCart: function (hvsc_id, seat) {
+      var cart = this.getVSCart(hvsc_id);
+      for (var i in cart) {
+        var cart_seat = cart[i];
+        if (cart_seat.hubber_seat_id == seat.hubber_seat_id) {
+          throw "Seat already in cart";
+        }
+      }
+      var key = i === undefined ? 0 : parseInt(i) + parseInt(1);
+      cart[key] = seat;
+
+      // Show cart when a place is added.
+      $('.js-hvsc-vscart')
+        .trigger('VSCartSeatAddedEvent', [hvsc_id, seat])
+        .removeClass('d-none');
+    },
+
+    /**
+     * Remove seat given from the vscart given
+     *
+     * @param {Integer} hvsc_id
+     *   id of hubberVirtualSeatCart instance in the DOM.
+     * @return {Interger} hubber_seat_id
+     *   id of the seat used as key in the vscart.
+     * @see getSeatFromMap() for the description of seat object.
+     */
+    removeFromVSCart: function (hvsc_id, hubber_seat_id) {
+      var cart = this.getVSCart(hvsc_id);
+      var finded = false;
+      for (var j in cart) {
+        var seat = cart[j];
+        if (seat.hubber_seat_id == hubber_seat_id) {
+          finded = true;
+
+          // If seat is in contiguity group, the group is destroyed.
+          if (seat.contig) {
+            for (var i in cart) {
+              cart[i].contig = false;
+            }
+          }
+          var deleted_seat = seat;
+          delete cart[j];
+        }
+      }
+      if (!finded) {
+        throw "Seat not found in cart";
+      }
+      $('.js-hvsc-vscart').trigger('VSCartSeatRemovedEvent', [hvsc_id, deleted_seat]);
+    },
+
+    /**
+     * Update price article in virtual car belong the choice of user
+     *
+     * @param {Integer} hvsc_id
+     *  id of hubberVirtualSeatCart instance in the DOM.
+     * @param {Integer} hubber_seat_id
+     *  id of the seat used as key in the vscart.
+     * @param {Integer} type_price_id
+     *  id of the selected price type
+     * @return null
+     *  This method does not return anything but triggers the
+     *   VSCartSeatPriceUpdated event.
+     */
+    updatePriceFromVSCart: function (hvsc_id, hubber_seat_id, type_price_id) {
+      var cart = this.getVSCart(hvsc_id);
+      for (var i in cart) {
+        var seat = cart[i];
+        if (seat.hubber_seat_id == hubber_seat_id) {
+          var seat_finded = seat;
+          seat.type_price_id = type_price_id;
+          seat.has_defined_type_price = true;
+
+          // Look variation and price of this seat
+          var type_price = drupalSettings
+            .hubberVirtualCart
+            .catPriceDatas[hvsc_id][seat.category_id]
+            .type_prices[type_price_id]
+          seat.variation_id = type_price.variation_id;
+          seat.price = type_price.price;
+          seat.type_price_description = type_price.description;
+        }
+      }
+      if (seat_finded === undefined) {
+        throw "Seat not found in cart";
+      }
+      $('.js-hvsc-vscart').trigger('VSCartSeatPriceUpdated', [hvsc_id, seat_finded]);
+    },
+
+    /**
+     * Validates the given vscart
+     *
+     * @param {Integer} hvsc_id
+     *   id of hubberVirtualSeatCart instance in the DOM.
+     * @return null
+     *   This method does not return anything but triggers the
+     *   VSCartValidatedEvent event.
+     */
+    validateVSCart: function (hvsc_id) {
+      var cart = this.getVSCart(hvsc_id);
+      if ($.isEmptyObject(cart)) {
+        throw "Cart is empty";
+      }
+      $('.js-hvsc-vscart').trigger('VSCartValidatedEvent', [hvsc_id, cart]);
+    },
+
+    /**
+     * Empty the vscart given
+     *
+     * @param {Integer} hvsc_id
+     *   id of hubberVirtualSeatCart instance in the DOM.
+     * @return null
+     *   This method does not return anything but triggers the
+     *   VSCartDestroyedEvent event.
+     */
+    destroyVSCart: function (hvsc_id) {
+      this.carts[hvsc_id] = {};
+      $('.js-hvsc-vscart').trigger('VSCartDestroyedEvent', [hvsc_id]);
+
+      // Update tickets quantity information.
+      $(document).trigger('HFPPTUpdateQuantity');
+    },
+
+
+    /**
+     * Empty the vscart given
+     *
+     * @param {Integer} hvsc_id
+     *   id of hubberVirtualSeatCart instance in the DOM.
+     * @return {Object} cart
+     *   vscart content
+     * @return null
+     *   This method does not return anything but triggers the
+     *   VSCartUpdateEvent event.
+     */
+    updateVSCart: function (hvsc_id, cart, seat_added) {
+      this.carts[hvsc_id] = cart;
+      $('.js-hvsc-vscart').trigger('VSCartUpdateEvent', [hvsc_id, seat_added]);
+
+      // Update tickets quantity information.
+      $(document).trigger('HFPPTUpdateQuantity');
+    },
+  }
+})(jQuery, Drupal, drupalSettings);
+
+;
+(function ($, Drupal, drupalSettings) {
+  'use strict';
+  Drupal.behaviors.hubberListCategories = {
+    attach: function (context) {
+      if (context != document) {
+        return;
+      }
+
+      // Back button on block panel.
+      $('.js-btn-cancel-choosen-block').on('click', function () {
+        // Go back to categories list.
+        $('.js-commerce-order-item-hubber-ticketing-add-to-cart-form').trigger('HTATCFEventReturnToCategoryList');
+
+        $(document).trigger('HFPPTUnSelectCategories');
+        $('.js-block-list-categories').trigger('HFPPTUnSelectCategory');
+
+        if (typeof Drupal.behaviors.hubberVirtualCart !== 'undefined') {
+          $('.js-hvsc-vscart').each(function() {
+            var hvsc_id = $(this).attr('hvsc-id');
+
+            Drupal.behaviors.hubberVirtualCart.destroyVSCart(hvsc_id);
+          });
+        }
+
+        // Go back to global map.
+        $('.js-hvsc-map').trigger('HTATCFEventBackToMap');
+      });
+
+      // Synchronize map with category mouse over.
+      $('.js-list-categories').on('mouseover', function () {
+        if ($(this).hasClass('js-category-locked')) {
+          return;
+        }
+        // If no block is selected, show block linked to the hover category on the map.
+        if (undefined == $(this).closest('.js-categories-panel').attr('block-id')) {
+          $('.js-hvsc-map').trigger('HTATCFEventCategoryHover', [
+            $(this).attr('cat_id'),
+          ]);
+        }
+      });
+
+      // Synchronize map with category mouse out.
+      $('.js-list-categories').on('mouseout', function () {
+        $('.js-hvsc-map').trigger('HTATCFEventCategoryOut');
+      });
+    }
+  };
+})(jQuery, Drupal, drupalSettings);
+;
+var hubberSaleRulesProduct = {
+
+  testValidSaleRulesOrder: function (total_basket, sale_rule_order) {
+    if (drupalSettings.saleRuleOrder['CHECK_MAX_ORDER'] !== undefined && drupalSettings.saleRuleOrder['CHECK_MAX_ORDER']['is_blocked'] !== undefined) {
+      if (drupalSettings.saleRuleOrder['CHECK_MAX_ORDER']['end'] !== undefined) {
+        return Drupal.t("You are not allowed to make new orders. The sales rule is limited to %qty order (s) per user. This sales rule applies from %start until %end.",
+          {
+            '%qty': drupalSettings.saleRuleOrder['CHECK_MAX_ORDER']['quantity'],
+            '%start': drupalSettings.saleRuleOrder['CHECK_MAX_ORDER']['start'],
+            '%end': drupalSettings.saleRuleOrder['CHECK_MAX_ORDER']['end']}
+        );
+      }
+      else {
+        return Drupal.t("You are not allowed to make new orders. The sales rule is limited to %qty order (s) per user", {'%qty': drupalSettings.saleRuleOrder['CHECK_MAX_ORDER']['quantity']});
+      }
+    }
+    if (sale_rule_order['CHECK_MAX_QTY'] !== undefined) {
+      var qty_basket = parseInt(drupalSettings.dataQtyBasket) + parseInt(total_basket['total_basket']);
+      if (qty_basket > parseInt(sale_rule_order['CHECK_MAX_QTY']['quantity'])) {
+        return Drupal.t("You must have a maximum %qty products in the basket", {'%qty': sale_rule_order['CHECK_MAX_QTY']['quantity']});
+      }
+    }
+    if (sale_rule_order['CHECK_MAX_QTY_BY_USER'] !== undefined) {
+      var qty_basket = parseInt(drupalSettings.dataQtyBasket) + parseInt(total_basket['total_basket']) + parseInt(sale_rule_order['CHECK_MAX_QTY_BY_USER']['quantity_past']);
+      if (qty_basket > parseInt(sale_rule_order['CHECK_MAX_QTY_BY_USER']['quantity'])) {
+        return Drupal.t("You must have a maximum %qty products in the account", {'%qty': sale_rule_order['CHECK_MAX_QTY_BY_USER']['quantity']});
+      }
+    }
+    return '';
+  },
+
+  testValidSaleRulesProduct: function (total, sale_rules, id_product) {
+    //controle max
+    if (sale_rules['CHECK_MAX_QTY'] !== undefined) {
+      var message_max = this.testMaxSaleRules(sale_rules['CHECK_MAX_QTY'], total);
+      if (message_max !== undefined) {
+        return message_max;
+      }
+    }
+
+    if (sale_rules['CHECK_MAX_QTY_BY_PRODUCT'] !== undefined) {
+      var message_max = this.testMaxSaleRules(sale_rules['CHECK_MAX_QTY_BY_PRODUCT'], total, id_product);
+      if (message_max !== undefined) {
+        return message_max;
+      }
+    }
+
+    //controle min
+    if (sale_rules['CHECK_MIN_QTY'] !== undefined) {
+      var message_min = this.testMinSaleRules(sale_rules['CHECK_MIN_QTY'], total);
+      if (message_min !== undefined) {
+        return message_min;
+      }
+    }
+
+    //controle max
+    if (sale_rules['CHECK_EQUAL_QTY'] !== undefined) {
+      var message_equal = this.testEqualSaleRules(sale_rules['CHECK_EQUAL_QTY'], total);
+      if (message_equal !== undefined) {
+        return message_equal;
+      }
+    }
+
+    //controle max
+    if (sale_rules['CHECK_MULTIPLE_QTY'] !== undefined) {
+      var message_multiple = this.testMultipleSaleRules(sale_rules['CHECK_MULTIPLE_QTY'], total);
+      if (message_multiple !== undefined) {
+        return message_multiple;
+      }
+    }
+
+    //test unlocked package
+    if (sale_rules['CHECK_UNLOCKED_TICKET'] !== undefined) {
+      var message_rate_unlocked = this.testIfSaleRuleRateIsValid(sale_rules['CHECK_UNLOCKED_TICKET'], total);
+      if (message_rate_unlocked !== undefined) {
+        return message_rate_unlocked;
+      }
+    }
+
+    //test coupled package
+    if (sale_rules['CHECK_COUPLED_TICKET'] !== undefined) {
+      var message_rate_coupled = this.testIfSaleRuleRateIsValid(sale_rules['CHECK_COUPLED_TICKET'], total);
+      if (message_rate_coupled !== undefined) {
+        return message_rate_coupled;
+      }
+    }
+    return '';
+  },
+
+  testEqualSaleRules: function (sale_rule, total) {
+    if (sale_rule !== undefined) {
+
+      if (sale_rule['variation'] !== undefined) {
+        for (var id in sale_rule['variation']) {
+          if (total['total_by_variation'] !== undefined && total['total_by_variation'][id] !== undefined && total['total_by_variation'][id] > 0 && total['total_by_variation'][id] != parseInt(sale_rule['variation'][id])) {
+            return Drupal.t("You can only take %qty tickets of type %variation", {'%qty': sale_rule['variation'][id], '%variation': total['variation_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['variation_by_user'] !== undefined) {
+        for (var id in sale_rule['variation_by_user']) {
+          if (total['total_by_variation_by_user'] !== undefined && total['total_by_variation_by_user'][id] !== undefined && total['total_by_variation_by_user'][id] > 0 && total['total_by_variation_by_user'][id] != parseInt(sale_rule['variation_by_user'][id])) {
+            return Drupal.t("You can only take %qty tickets of type %variation with this account", {'%qty': sale_rule['variation_by_user'][id], '%variation': total['variation_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['product'] !== undefined) {
+        for (var id in sale_rule['product']) {
+          if (total['total_by_product'] !== undefined && total['total_by_product'][id] !== undefined && total['total_by_product'][id] > 0 && total['total_by_product'][id] != parseInt(sale_rule['product'][id])) {
+            return Drupal.t("You can only take %qty tickets for this product", {'%qty': sale_rule['product'][id], '%product': total['product_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['product_by_user'] !== undefined) {
+        for (var id in sale_rule['product_by_user']) {
+          if (total['total_by_product_by_user'] !== undefined && total['total_by_product_by_user'][id] !== undefined && total['total_by_product_by_user'][id] > 0 && total['total_by_product_by_user'][id] != parseInt(sale_rule['product_by_user'][id])) {
+            return Drupal.t("You can only take %qty tickets for this product with this account", {'%qty': sale_rule['product_by_user'][id], '%product': total['product_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['attribute'] !== undefined && sale_rule['attribute']['category'] !== undefined) {
+        for (var id in sale_rule['attribute']['category']) {
+          if (total['total_by_category'] !== undefined && total['total_by_category'][id] !== undefined && total['total_by_category'][id] > 0 && total['total_by_category'][id] != parseInt(sale_rule['attribute']['category'][id])) {
+            return Drupal.t("You can only take %qty tickets of category %category", {
+              '%qty': sale_rule['attribute']['category'][id],
+              '%category': total['category_label'][id]
+            });
+          }
+        }
+      }
+
+      if (sale_rule['attribute_by_user'] !== undefined && sale_rule['attribute_by_user']['category'] !== undefined) {
+        for (var id in sale_rule['attribute_by_user']['category']) {
+          if (total['total_by_category_by_user'] !== undefined && total['total_by_category_by_user'][id] !== undefined && total['total_by_category_by_user'][id] > 0 && total['total_by_category_by_user'][id] != parseInt(sale_rule['attribute_by_user']['category'][id])) {
+            return Drupal.t("You can only take %qty tickets of category %category with this account", {'%qty': sale_rule['attribute_by_user']['category'][id], '%category': total['category_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['attribute'] !== undefined && sale_rule['attribute']['type_price'] !== undefined) {
+        for (var id in sale_rule['attribute']['type_price']) {
+          if (total['total_by_type_price'] !== undefined && total['total_by_type_price'][id] !== undefined && total['total_by_type_price'][id] > 0 && total['total_by_type_price'][id] != parseInt(sale_rule['attribute']['type_price'][id])) {
+            return Drupal.t("You can only take %qty tickets of price %type_price", {'%qty': sale_rule['attribute']['type_price'][id], '%type_price': total['type_price_label'][id]});
+          }
+        }
+
+        if (sale_rule['attribute_by_user'] !== undefined && sale_rule['attribute_by_user']['type_price'] !== undefined) {
+          for (var id in sale_rule['attribute_by_user']['type_price']) {
+            if (total['total_by_type_price_by_user'] !== undefined && total['total_by_type_price_by_user'][id] !== undefined && total['total_by_type_price_by_user'][id] > 0 && total['total_by_type_price_by_user'][id] != parseInt(sale_rule['attribute_by_user']['type_price_by_user'][id])) {
+              return Drupal.t("You can only take %qty tickets of price %type_price with this account", {'%qty': sale_rule['attribute_by_user']['type_price_by_user'][id], '%type_price': total['type_price_label'][id]});
+            }
+          }
+        }
+
+        if (sale_rule['type'] !== undefined) {
+          for (var id in sale_rule['type']) {
+            if (total['total_by_type'] !== undefined && total['total_by_type'][id] !== undefined && total['total_by_type'][id] > 0 && total['total_by_type'][id] != parseInt(sale_rule['type'][id])) {
+              return Drupal.t("You can only take %qty tickets", {'%qty': sale_rule['type'][id]});
+            }
+          }
+        }
+
+        if (sale_rule['type_by_user'] !== undefined) {
+          for (var id in sale_rule['type_by_user']) {
+            if (total['total_by_type_by_user'] !== undefined && total['total_by_type_by_user'][id] !== undefined && total['total_by_type_by_user'][id] > 0 && total['total_by_type_by_user'][id] != parseInt(sale_rule['type_by_user'][id])) {
+              return Drupal.t("You can only take %qty tickets with this account", {'%qty': sale_rule['type_by_user'][id]});
+            }
+          }
+        }
+
+        if (sale_rule['provider'] !== undefined) {
+          for (var id in sale_rule['provider']) {
+            if (total['total_by_provider'] !== undefined && total['total_by_provider'][id] !== undefined && total['total_by_provider'][id] > 0 && total['total_by_provider'][id] != parseInt(sale_rule['provider'][id])) {
+              return Drupal.t("You can only take %qty tickets", {'%qty': sale_rule['provider'][id]});
+            }
+          }
+        }
+
+        if (sale_rule['provider_by_user'] !== undefined) {
+          for (var id in sale_rule['provider_by_user']) {
+            if (total['total_by_provider_by_user'] !== undefined && total['total_by_provider_by_user'][id] !== undefined && total['total_by_provider_by_user'][id] > 0 && total['total_by_provider_by_user'][id] != parseInt(sale_rule['provider_by_user'][id])) {
+              return Drupal.t("You can only take %qty tickets with this account", {'%qty': sale_rule['provider_by_user'][id]});
+            }
+          }
+        }
+
+        if (sale_rule['all'] !== undefined) {
+          if (total['total_all'] !== undefined && total['total_all'] !== undefined && total['total_all'] > 0 && total['total_all'] != parseInt(sale_rule['all'])) {
+            return Drupal.t("You can only take %qty tickets", {'%qty': sale_rule['all']});
+          }
+        }
+
+        if (sale_rule['all_by_user'] !== undefined) {
+          if (total['total_all_by_user'] !== undefined && total['total_all_by_user'] > 0 && total['total_all_by_user'] != parseInt(sale_rule['all_by_user'])) {
+            return Drupal.t("You can only take %qty tickets with this account", {'%qty': sale_rule['all_by_user']});
+          }
+        }
+      }
+    }
+  },
+
+  testMinSaleRules: function (sale_rule, total) {
+    if (sale_rule !== undefined) {
+
+      if (sale_rule['variation'] !== undefined) {
+        for (var id in sale_rule['variation']) {
+          if (total['total_by_variation'] !== undefined && total['total_by_variation'][id] !== undefined && total['total_by_variation'][id] > 0 && total['total_by_variation'][id] < parseInt(sale_rule['variation'][id])) {
+            return Drupal.t("You must take at least %qty tickets of type %variation", {'%qty': sale_rule['variation'][id], '%variation': total['variation_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['variation_by_user'] !== undefined) {
+        for (var id in sale_rule['variation_by_user']) {
+          if (total['total_by_variation_by_user'] !== undefined && total['total_by_variation_by_user'][id] !== undefined && total['total_by_variation_by_user'][id] > 0 && total['total_by_variation_by_user'][id] < parseInt(sale_rule['variation_by_user'][id])) {
+            return Drupal.t("You must take at least %qty tickets of type %variation with this account", {'%qty': sale_rule['variation_by_user'][id], '%variation': total['variation_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['product'] !== undefined) {
+        for (var id in sale_rule['product']) {
+          if (total['total_by_product'] !== undefined && total['total_by_product'][id] !== undefined && total['total_by_product'][id] > 0 && total['total_by_product'][id] < parseInt(sale_rule['product'][id])) {
+            return Drupal.t("You must take at least %qty tickets for this product", {'%qty': sale_rule['product'][id], '%product': total['product_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['product_by_user'] !== undefined) {
+        for (var id in sale_rule['product_by_user']) {
+          if (total['total_by_product_by_user'] !== undefined && total['total_by_product_by_user'][id] !== undefined && total['total_by_product_by_user'][id] > 0 && total['total_by_product_by_user'][id] < parseInt(sale_rule['product_by_user'][id])) {
+            return Drupal.t("You must take at least %qty tickets for this product with this account", {'%qty': sale_rule['product_by_user'][id], '%product': total['product_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['attribute'] !== undefined && sale_rule['attribute']['category'] !== undefined) {
+        for (var id in sale_rule['attribute']['category']) {
+          if (total['total_by_category'] !== undefined && total['total_by_category'][id] !== undefined && total['total_by_category'][id] > 0 && total['total_by_category'][id] < parseInt(sale_rule['attribute']['category'][id])) {
+            return Drupal.t("You must take at least %qty tickets of category %category", {'%qty': sale_rule['attribute']['category'][id], '%category': total['category_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['attribute_by_user'] !== undefined && sale_rule['attribute_by_user']['category'] !== undefined) {
+        for (var id in sale_rule['attribute_by_user']['category']) {
+          if (total['total_by_category_by_user'] !== undefined && total['total_by_category_by_user'][id] !== undefined && total['total_by_category_by_user'][id] > 0 && total['total_by_category_by_user'][id] < parseInt(sale_rule['attribute_by_user']['category'][id])) {
+            return Drupal.t("You must take at least %qty tickets of category %category with this account", {'%qty': sale_rule['attribute_by_user']['category'][id], '%category': total['category_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['attribute'] !== undefined && sale_rule['attribute']['type_price'] !== undefined) {
+        for (var id in sale_rule['attribute']['type_price']) {
+          if (total['total_by_type_price'] !== undefined && total['total_by_type_price'][id] !== undefined && total['total_by_type_price'][id] > 0 && total['total_by_type_price'][id] < parseInt(sale_rule['attribute']['type_price'][id])) {
+            return Drupal.t("You must take at least %qty tickets of price %type_price", {'%qty': sale_rule['attribute']['type_price'][id], '%type_price': total['type_price_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['attribute_by_user'] !== undefined && sale_rule['attribute_by_user']['type_price'] !== undefined) {
+        for (var id in sale_rule['attribute_by_user']['type_price']) {
+          if (total['total_by_type_price_by_user'] !== undefined && total['total_by_type_price_by_user'][id] !== undefined && total['total_by_type_price_by_user'][id] > 0 && total['total_by_type_price_by_user'][id] < parseInt(sale_rule['attribute_by_user']['type_price'][id])) {
+            return Drupal.t("You must take at least %qty tickets of price %type_price with this account", {'%qty': sale_rule['attribute_by_user']['type_price'][id], '%type_price': total['type_price_label']});
+          }
+        }
+      }
+
+      if (sale_rule['type'] !== undefined) {
+        for (var id in sale_rule['type']) {
+          if (total['total_by_type'] !== undefined && total['total_by_type'][id] !== undefined && total['total_by_type'][id] > 0 && total['total_by_type'][id] < parseInt(sale_rule['type'][id])) {
+            return Drupal.t("You must take at least %qty tickets", {'%qty': sale_rule['type'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['type_by_user'] !== undefined) {
+        for (var id in sale_rule['type_by_user']) {
+          if (total['total_by_type_by_user'] !== undefined && total['total_by_type_by_user'][id] !== undefined && total['total_by_type_by_user'][id] > 0 && total['total_by_type_by_user'][id] < parseInt(sale_rule['type_by_user'][id])) {
+            return Drupal.t("You must take at least %qty tickets with this account", {'%qty': sale_rule['type_by_user'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['provider'] !== undefined) {
+        for (var id in sale_rule['provider']) {
+          if (total['total_by_provider'] !== undefined && total['total_by_provider'][id] !== undefined && total['total_by_provider'][id] > 0 && total['total_by_provider'][id] < parseInt(sale_rule['provider'][id])) {
+            return Drupal.t("You must take at least %qty tickets", {'%qty': sale_rule['provider'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['provider_by_user'] !== undefined) {
+        for (var id in sale_rule['provider_by_user']) {
+          if (total['total_by_provider_by_user'] !== undefined && total['total_by_provider_by_user'][id] !== undefined && total['total_by_provider_by_user'][id] > 0 && total['total_by_provider_by_user'][id] < parseInt(sale_rule['provider_by_user'][id])) {
+            return Drupal.t("You must take at least %qty tickets with this account", {'%qty': sale_rule['provider_by_user'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['all'] !== undefined) {
+        if (total['total_all'] !== undefined && total['total_all'] > 0 && total['total_all'] < parseInt(sale_rule['all'])) {
+          return Drupal.t("You must take at least %qty tickets", {'%qty': sale_rule['all']});
+        }
+      }
+
+      if (sale_rule['all_by_user'] !== undefined) {
+        if (total['total_all_by_user'] !== undefined && total['total_all_by_user'] > 0 && total['total_all_by_user'] < parseInt(sale_rule['all_by_user'])) {
+          return Drupal.t("You must take at least %qty tickets with this account", {'%qty': sale_rule['all_by_user']});
+        }
+      }
+    }
+  },
+
+  testMaxSaleRules: function (sale_rule, total, id_product) {
+    if (sale_rule !== undefined) {
+      let check_by_product = (typeof id_product !== 'undefined');
+
+      if (sale_rule['variation'] !== undefined) {
+        for (var id in sale_rule['variation']) {
+          if (total['total_by_variation'] !== undefined && total['total_by_variation'][id] !== undefined && total['total_by_variation'][id] > 0 && total['total_by_variation'][id] > parseInt(sale_rule['variation'][id])) {
+            return Drupal.t("You can't take more than %qty tickets of type %variation", {'%qty': sale_rule['variation'][id], '%variation': total['variation_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['variation_by_user'] !== undefined) {
+        for (var id in sale_rule['variation_by_user']) {
+          if (total['total_by_variation_by_user'] !== undefined && total['total_by_variation_by_user'][id] !== undefined && total['total_by_variation_by_user'][id] > 0 && total['total_by_variation_by_user'][id] > parseInt(sale_rule['variation_by_user'][id])) {
+            return Drupal.t("You can't take more than %qty tickets of type %variation with this account", {'%qty': sale_rule['variation_by_user'][id], '%variation': total['variation_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['product'] !== undefined) {
+        for (var id in sale_rule['product']) {
+          if (total['total_by_product'] !== undefined && total['total_by_product'][id] !== undefined && total['total_by_product'][id] > 0 && total['total_by_product'][id] > parseInt(sale_rule['product'][id])) {
+            return Drupal.t("You can't take more than %qty tickets for this product", {'%qty': sale_rule['product'][id], '%product': total['product_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['product_by_user'] !== undefined) {
+        for (var id in sale_rule['product_by_user']) {
+          if (total['total_by_product_by_user'] !== undefined && total['total_by_product_by_user'][id] !== undefined && total['total_by_product_by_user'][id] > 0 && total['total_by_product_by_user'][id] > parseInt(sale_rule['product_by_user'][id])) {
+            return Drupal.t("You can't take more than %qty tickets for this product with this account", {'%qty': sale_rule['product_by_user'][id], '%product': total['product_label'][id]});
+          }
+        }
+      }
+
+      if (!check_by_product) {
+        if (sale_rule['attribute'] !== undefined && sale_rule['attribute']['category'] !== undefined) {
+          for (var id in sale_rule['attribute']['category']) {
+            if (total['total_by_category'] !== undefined && total['total_by_category'][id] !== undefined && total['total_by_category'][id] > 0 && total['total_by_category'][id] > parseInt(sale_rule['attribute']['category'][id])) {
+              return Drupal.t("You can't take more than %qty tickets of category %category", {'%qty': sale_rule['attribute']['category'][id], '%category': total['category_label'][id]});
+            }
+          }
+        }
+
+        if (sale_rule['attribute_by_user'] !== undefined && sale_rule['attribute_by_user']['category'] !== undefined) {
+          for (var id in sale_rule['attribute_by_user']['category']) {
+            if (total['total_by_category_by_user'] !== undefined && total['total_by_category_by_user'][id] !== undefined && total['total_by_category_by_user'][id] > 0 && total['total_by_category_by_user'][id] > parseInt(sale_rule['attribute_by_user']['category'][id])) {
+              return Drupal.t("You can't take more than %qty tickets of category %category", {'%qty': sale_rule['attribute_by_user']['category'][id], '%category': total['category_label'][id]});
+            }
+          }
+        }
+
+        if (sale_rule['attribute'] !== undefined && sale_rule['attribute']['type_price'] !== undefined) {
+          for (var id in sale_rule['attribute']['type_price']) {
+            if (total['total_by_type_price'] !== undefined && total['total_by_type_price'][id] !== undefined && total['total_by_type_price'][id] > 0 && total['total_by_type_price'][id] > parseInt(sale_rule['attribute']['type_price'][id])) {
+              return Drupal.t("You can't take more than %qty tickets of price %type_price", {'%qty': sale_rule['attribute']['type_price'][id], '%type_price': total['type_price_label'][id]});
+            }
+          }
+        }
+
+        if (sale_rule['attribute_by_user'] !== undefined && sale_rule['attribute_by_user']['type_price'] !== undefined) {
+          for (var id in sale_rule['attribute_by_user']['type_price']) {
+            if (total['total_by_type_price_by_user'] !== undefined && total['total_by_type_price_by_user'][id] !== undefined && total['total_by_type_price_by_user'][id] > 0 && total['total_by_type_price_by_user'][id] > parseInt(sale_rule['attribute_by_user']['type_price'][id])) {
+              return Drupal.t("You can't take more than %qty tickets of price %type_price with this account", {'%qty': sale_rule['attribute_by_user']['type_price'][id], '%type_price': total['type_price_label'][id]});
+            }
+          }
+        }
+      }
+      else {
+        if (sale_rule['attribute'] !== undefined && sale_rule['attribute']['category'] !== undefined) {
+          for (var id in sale_rule['attribute']['category']) {
+            if (total['total_by_category_by_product'] !== undefined && total['total_by_category_by_product'][id_product] !== undefined && total['total_by_category_by_product'][id_product][id] !== undefined && total['total_by_category_by_product'][id_product][id] > 0 && total['total_by_category_by_product'][id_product][id] > parseInt(sale_rule['attribute']['category'][id])) {
+              return Drupal.t("You can't take more than %qty tickets of category %category", {'%qty': sale_rule['attribute']['category'][id], '%category': total['category_label'][id]});
+            }
+          }
+        }
+
+        if (sale_rule['attribute_by_user'] !== undefined && sale_rule['attribute_by_user']['category'] !== undefined) {
+          for (var id in sale_rule['attribute_by_user']['category']) {
+            if (total['total_by_category_by_user_by_product'] !== undefined && total['total_by_category_by_user_by_product'][id_product] !== undefined && total['total_by_category_by_user_by_product'][id_product][id] !== undefined && total['total_by_category_by_user_by_product'][id_product][id] > 0 && total['total_by_category_by_user_by_product'][id_product][id] > parseInt(sale_rule['attribute_by_user']['category'][id])) {
+              return Drupal.t("You can't take more than %qty tickets of category %category", {'%qty': sale_rule['attribute_by_user']['category'][id], '%category': total['category_label'][id]});
+            }
+          }
+        }
+
+        if (sale_rule['attribute'] !== undefined && sale_rule['attribute']['type_price'] !== undefined) {
+          for (var id in sale_rule['attribute']['type_price']) {
+            if (total['total_by_type_price_by_product'] !== undefined && total['total_by_type_price_by_product'][id_product] !== undefined && total['total_by_type_price_by_product'][id_product][id] !== undefined && total['total_by_type_price_by_product'][id_product][id] > 0 && total['total_by_type_price_by_product'][id_product][id] > parseInt(sale_rule['attribute']['type_price'][id])) {
+              return Drupal.t("You can't take more than %qty tickets of price %type_price", {'%qty': sale_rule['attribute']['type_price'][id], '%type_price': total['type_price_label'][id]});
+            }
+          }
+        }
+
+        if (sale_rule['attribute_by_user'] !== undefined && sale_rule['attribute_by_user']['type_price'] !== undefined) {
+          for (var id in sale_rule['attribute_by_user']['type_price']) {
+            if (total['total_by_type_price_by_user_by_product'] !== undefined && total['total_by_type_price_by_user_by_product'][id_product] !== undefined && total['total_by_type_price_by_user_by_product'][id_product][id] !== undefined && total['total_by_type_price_by_user_by_product'][id_product][id] > 0 && total['total_by_type_price_by_user_by_product'][id_product][id] > parseInt(sale_rule['attribute_by_user']['type_price'][id])) {
+              return Drupal.t("You can't take more than %qty tickets of price %type_price with this account", {'%qty': sale_rule['attribute_by_user']['type_price'][id], '%type_price': total['type_price_label'][id]});
+            }
+          }
+        }
+      }
+
+
+      if (sale_rule['type'] !== undefined) {
+        for (var id in sale_rule['type']) {
+          if (total['total_by_type'] !== undefined && total['total_by_type'][id] !== undefined && total['total_by_type'][id] > 0 && total['total_by_type'][id] > parseInt(sale_rule['type'][id])) {
+            return Drupal.t("You can't take more than %qty tickets", {'%qty': sale_rule['type'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['type_by_user'] !== undefined) {
+        for (var id in sale_rule['type_by_user']) {
+          if (total['total_by_type_by_user'] !== undefined && total['total_by_type_by_user'][id] !== undefined && total['total_by_type_by_user'][id] > 0 && total['total_by_type_by_user'][id] > parseInt(sale_rule['type_by_user'][id])) {
+            return Drupal.t("You can't take more than %qty tickets with this account", {'%qty': sale_rule['type_by_user'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['provider'] !== undefined) {
+        for (var id in sale_rule['provider']) {
+          if (total['total_by_provider'] !== undefined && total['total_by_provider'][id] !== undefined && total['total_by_provider'][id] > 0 && total['total_by_provider'][id] > parseInt(sale_rule['provider'][id])) {
+            return Drupal.t("You can't take more than %qty tickets", {'%qty': sale_rule['provider'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['provider_by_user'] !== undefined) {
+        for (var id in sale_rule['provider_by_user']) {
+          if (total['total_by_provider_by_user'] !== undefined && total['total_by_provider_by_user'][id] !== undefined && total['total_by_provider_by_user'][id] > 0 && total['total_by_provider_by_user'][id] > parseInt(sale_rule['provider_by_user'][id])) {
+            return Drupal.t("You can't take more than %qty tickets with this account", {'%qty': sale_rule['provider_by_user'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['all'] !== undefined) {
+        if (total['total_all'] !== undefined && total['total_all'] > 0 && total['total_all'] > parseInt(sale_rule['all'])) {
+          return Drupal.t("You can't take more than %qty tickets", {'%qty': sale_rule['all']});
+        }
+      }
+
+      if (sale_rule['all_by_user'] !== undefined) {
+        if (total['total_all_by_user'] !== undefined && total['total_all_by_user'] > 0 && total['total_all_by_user'] > parseInt(sale_rule['all_by_user'])) {
+          return Drupal.t("You can't take more than %qty tickets with this account", {'%qty': sale_rule['all_by_user']});
+        }
+      }
+    }
+  },
+
+  testMultipleSaleRules: function (sale_rule, total) {
+    if (sale_rule !== undefined) {
+      if (sale_rule['variation'] !== undefined) {
+        for (var id in sale_rule['variation']) {
+          if (total['total_by_variation'] !== undefined && total['total_by_variation'][id] !== undefined && total['total_by_variation'][id] > 0 && (total['total_by_variation'][id] % parseInt(sale_rule['variation'][id])) != 0) {
+            return Drupal.t("You have to take a multiple of %qty tickets of price %variation", {'%qty': sale_rule['variation'][id], '%variation': total['variation_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['variation_by_user'] !== undefined) {
+        for (var id in sale_rule['variation_by_user']) {
+          if (total['total_by_variation_by_user'] !== undefined && total['total_by_variation_by_user'][id] !== undefined && total['total_by_variation_by_user'][id] > 0 && (total['total_by_variation_by_user'][id] % parseInt(sale_rule['variation_by_user'][id])) != 0) {
+            return Drupal.t("You have to take a multiple of %qty tickets of price %variation with this account", {'%qty': sale_rule['variation_by_user'][id], '%variation': total['variation_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['product'] !== undefined) {
+        for (var id in sale_rule['product']) {
+          if (total['total_by_product'] !== undefined && total['total_by_product'][id] !== undefined && total['total_by_product'][id] > 0 && (total['total_by_product'][id] % parseInt(sale_rule['product'][id])) != 0) {
+            return Drupal.t("You have to take a multiple of %qty tickets for this product", {'%qty': sale_rule['product'][id], '%product': total['product_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['product_by_user'] !== undefined) {
+        for (var id in sale_rule['product_by_user']) {
+          if (total['total_by_product_by_user'] !== undefined && total['total_by_product_by_user'][id] !== undefined && total['total_by_product_by_user'][id] > 0 && (total['total_by_product_by_user'][id] % parseInt(sale_rule['product_by_user'][id])) != 0) {
+            return Drupal.t("You have to take a multiple of %qty tickets for this product with this account", {'%qty': sale_rule['product_by_user'][id], '%product': total['product_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['attribute'] !== undefined && sale_rule['attribute']['category'] !== undefined) {
+        for (var id in sale_rule['attribute']['category']) {
+          if (total['total_by_category'] !== undefined && total['total_by_category'][id] !== undefined && total['total_by_category'][id] > 0 && (total['total_by_category'][id] % parseInt(sale_rule['attribute']['category'][id])) != 0) {
+            return Drupal.t("You have to take a multiple of %qty tickets of category %category", {'%qty': sale_rule['attribute']['category'][id], '%category': total['category_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['attribute_by_user'] !== undefined && sale_rule['attribute_by_user']['category'] !== undefined) {
+        for (var id in sale_rule['attribute_by_user']['category']) {
+          if (total['total_by_category_by_user'] !== undefined && total['total_by_category_by_user'][id] !== undefined && total['total_by_category_by_user'][id] > 0 && (total['total_by_category_by_user'][id] % parseInt(sale_rule['attribute_by_user']['category'][id])) != 0) {
+            return Drupal.t("You have to take a multiple of %qty tickets of category %category with this account", {'%qty': sale_rule['attribute_by_user']['category'][id], '%category': total['category_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['attribute'] !== undefined && sale_rule['attribute']['type_price'] !== undefined) {
+        for (var id in sale_rule['attribute']['type_price']) {
+          if (total['total_by_type_price'] !== undefined && total['total_by_type_price'][id] !== undefined && total['total_by_type_price'][id] > 0 && (total['total_by_type_price'][id] % parseInt(sale_rule['attribute']['type_price'][id])) != 0) {
+            return Drupal.t("You have to take a multiple of %qty tickets of price %type_price", {'%qty': sale_rule['attribute']['type_price'][id], '%type_price': total['type_price_label'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['attribute_by_user'] !== undefined && sale_rule['attribute_by_user']['type_price'] !== undefined) {
+        for (var id in sale_rule['attribute_by_user']['type_price']) {
+          if (total['total_by_type_price_by_user'] !== undefined && total['total_by_type_price_by_user'][id] !== undefined && total['total_by_type_price_by_user'][id] > 0 && (total['total_by_type_price_by_user'][id] % parseInt(sale_rule['attribute_by_user']['type_price'][id])) != 0) {
+            return Drupal.t("You have to take a multiple of %qty tickets of price %type_price with this account", {'%qty': sale_rule['attribute_by_user']['type_price'][id], '%type_price': total['total_by_type_price_by_user'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['type'] !== undefined) {
+        for (var id in sale_rule['type']) {
+          if (total['total_by_type'] !== undefined && total['total_by_type'][id] !== undefined && total['total_by_type'][id] > 0 && (total['total_by_type'][id] % parseInt(sale_rule['type'][id])) != 0) {
+            return Drupal.t("You have to take a multiple of %qty tickets", {'%qty': sale_rule['type'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['type_by_user'] !== undefined) {
+        for (var id in sale_rule['type_by_user']) {
+          if (total['total_by_type_by_user'] !== undefined && total['total_by_type_by_user'][id] !== undefined && total['total_by_type_by_user'][id] > 0 && (total['total_by_type_by_user'][id] % parseInt(sale_rule['type_by_user'][id])) != 0) {
+            return Drupal.t("You have to take a multiple of %qty tickets with this account", {'%qty': sale_rule['type_by_user'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['provider'] !== undefined) {
+        for (var id in sale_rule['provider']) {
+          if (total['total_by_provider'] !== undefined && total['total_by_provider'][id] !== undefined && total['total_by_provider'][id] > 0 && (total['total_by_provider'][id] % parseInt(sale_rule['provider'][id])) != 0) {
+            return Drupal.t("You have to take a multiple of %qty tickets", {'%qty': sale_rule['provider'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['provider_by_user'] !== undefined) {
+        for (var id in sale_rule['provider_by_user']) {
+          if (total['total_by_provider_by_user'] !== undefined && total['total_by_provider_by_user'][id] !== undefined && total['total_by_provider_by_user'][id] > 0 && (total['total_by_provider_by_user'][id] % parseInt(sale_rule['provider_by_user'][id])) != 0) {
+            return Drupal.t("You have to take a multiple of %qty tickets with this account", {'%qty': sale_rule['provider_by_user'][id]});
+          }
+        }
+      }
+
+      if (sale_rule['all'] !== undefined) {
+        if (total['total_all'] !== undefined && total['total_all'] > 0 && (total['total_all'] % parseInt(sale_rule['all'])) != 0) {
+          return Drupal.t("You have to take a multiple of %qty tickets", {'%qty': sale_rule['all']});
+        }
+      }
+
+      if (sale_rule['all_by_user'] !== undefined) {
+        if (total['total_all_by_user'] !== undefined && total['total_all_by_user'] > 0 && (total['total_all_by_user'] % parseInt(sale_rule['all_by_user'])) != 0) {
+          return Drupal.t("You have to take a multiple of %qty tickets with this account", {'%qty': sale_rule['all_by_user']});
+        }
+      }
+    }
+  },
+  testIfSaleRuleRateIsValid: function (sale_rules, total) {
+    if (total['total_by_type_price'] !== undefined) {
+      for (var id_product in sale_rules) {
+        if (sale_rules[id_product]['force_same_category']) {
+          for (var id_category in total['type_price_by_category']) {
+            for (var id_type_price in sale_rules[id_product]['child']) {
+              if (total['type_price_by_category'][id_category][id_type_price] !== undefined && total['type_price_by_category'][id_category][id_type_price] > 0) {
+                for (var i in sale_rules[id_product]['child'][id_type_price]) {
+                  var sale_rule = sale_rules[id_product]['child'][id_type_price][i];
+                  var nb_rate_sale_rules = Math.ceil(total['type_price_by_category'][id_category][id_type_price] / sale_rule.child_qty) * sale_rule.parent_qty;
+                  let nb_parent_price = 0;
+                  for (let j in sale_rule.parent_rate) {
+                    let parent_rate_id = sale_rule.parent_rate[j];
+                    if (total['type_price_by_category'][id_category][parent_rate_id] === undefined) {
+                      continue;
+                    }
+                    nb_parent_price += parseInt(total['type_price_by_category'][id_category][parent_rate_id]);
+                  }
+                  if (nb_parent_price < nb_rate_sale_rules) {
+                  return Drupal.t("You must add %qty1 ticket(s) of price %label1 for category %category in your cart to get %qty2 ticket(s) of price %label2", {
+                      '%qty1': nb_rate_sale_rules,
+                      '%label1': sale_rule.parent_label,
+                      '%category': drupalSettings['dataCategories'][id_category],
+                      '%qty2': total['type_price_by_category'][id_category][id_type_price],
+                      '%label2': sale_rule.child_label
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        for (var id_type_price in sale_rules[id_product]['child']) {
+          if (total['total_by_type_price'][id_type_price] !== undefined && total['total_by_type_price'][id_type_price] > 0) {
+            for (var i in sale_rules[id_product]['child'][id_type_price]) {
+              var sale_rule = sale_rules[id_product]['child'][id_type_price][i];
+              var nb_rate_sale_rules = Math.ceil(total['total_by_type_price'][id_type_price] / sale_rule.child_qty) * sale_rule.parent_qty;
+              let nb_parent_price = 0;
+              for (let j in sale_rule.parent_rate) {
+                let parent_rate_id = sale_rule.parent_rate[j];
+                if (total['total_by_type_price'][parent_rate_id] === undefined) {
+                  continue;
+                }
+                nb_parent_price += parseInt(total['total_by_type_price'][parent_rate_id]);
+              }
+              if (nb_parent_price < nb_rate_sale_rules) {
+                return Drupal.t("You must add %qty1 ticket(s) of price %label1 in your cart to get %qty2 ticket(s) of price %label2", {
+                  '%qty1': nb_rate_sale_rules,
+                  '%label1': sale_rule.parent_label,
+                  '%qty2': total['total_by_type_price'][id_type_price],
+                  '%label2': sale_rule.child_label
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  initTotal: function (has_by_user) {
+    var total = [];
+
+    total['total_basket'] = 0;
+    total['total_all'] = 0;
+    total['total_by_provider'] = [];
+    total['total_by_type'] = [];
+    total['total_by_category'] = [];
+    total['total_by_type_price'] = [];
+    total['total_by_category_by_product'] = [];
+    total['total_by_type_price_by_product'] = [];
+    total['total_by_product'] = [];
+    total['total_by_variation'] = [];
+    total['total_all_by_user'] = 0;
+    total['total_by_provider_by_user'] = [];
+    total['total_by_type_by_user'] = [];
+    total['total_by_category_by_user'] = [];
+    total['total_by_type_price_by_user'] = [];
+    total['total_by_category_by_user_by_product'] = [];
+    total['total_by_type_price_by_user_by_product'] = [];
+    total['total_by_product_by_user'] = [];
+    total['total_by_variation_by_user'] = [];
+    total['type_price_by_category'] = [];
+
+    total['variation_label'] = [];
+    total['product_label'] = [];
+    total['category_label'] = [];
+    total['type_price_label'] = [];
+
+    //add basket data
+    this.addDataInTotal(total, drupalSettings.dataBasketForSaleRules, false);
+
+    if (has_by_user) {
+      this.addDataInTotal(total, drupalSettings.dataPastOrderForSaleRules, true);
+    }
+    return total;
+  },
+  /**
+   * Add ticket from the real cart in total virtual cart
+   *
+   * @param {Array} totalInVSCart
+   * @param {Array} cart
+   * @returns {Array}
+   */
+  addDataInTotal: function (total, data, for_user = false) {
+    if (data['all'] !== undefined) {
+      if (for_user === false) {
+        total['total_all'] = data['all'];
+      }
+      total['total_all_by_user'] = data['all'];
+    }
+    if (data['providers'] !== undefined) {
+      for (var id_provider in data['providers']) {
+        if (for_user === false) {
+          total['total_by_provider'][id_provider] = data['providers'][id_provider];
+        }
+        total['total_by_provider_by_user'][id_provider] = data['providers'][id_provider];
+      }
+    }
+    if (data['types'] !== undefined) {
+      for (var id_type in data['types']) {
+        if (for_user === false) {
+          total['total_by_type'][id_type] = data['types'][id_type];
+        }
+        total['total_by_type_by_user'][id_type] = data['types'][id_type];
+      }
+    }
+    if (data['attributes'] !== undefined) {
+      for (var key_attributes in data['attributes']) {
+        var attribute_name = key_attributes.replace('attribute_', '');
+        for (var id_attribute in data['attributes'][key_attributes]) {
+          if (for_user === false) {
+            total['total_by_' + attribute_name][id_attribute] = data['attributes'][key_attributes][id_attribute];
+          }
+          total['total_by_' + attribute_name + '_by_user'][id_attribute] = data['attributes'][key_attributes][id_attribute];
+        }
+      }
+    }
+    if (data['attributes_by_product'] !== undefined) {
+      for (var id_product in data['attributes_by_product']) {
+        for (var key_attributes in data['attributes_by_product'][id_product]) {
+          var attribute_name = key_attributes.replace('attribute_', '');
+          for (var id_attribute in data['attributes_by_product'][id_product][key_attributes]) {
+            if (for_user === false) {
+              if (total['total_by_' + attribute_name + '_by_product'][id_product] === undefined) {
+                total['total_by_' + attribute_name + '_by_product'][id_product] = [];
+              }
+              total['total_by_' + attribute_name + '_by_product'][id_product][id_attribute] = data['attributes_by_product'][id_product][key_attributes][id_attribute];
+            }
+            if (total['total_by_' + attribute_name + '_by_user_by_product'][id_product] === undefined) {
+              total['total_by_' + attribute_name + '_by_user_by_product'][id_product] = [];
+            }
+            total['total_by_' + attribute_name + '_by_user_by_product'][id_product][id_attribute] = data['attributes_by_product'][id_product][key_attributes][id_attribute];
+          }
+        }
+      }
+    }
+    if (data['type_price_by_category_by_product'] !== undefined) {
+      for (var id_product in data['type_price_by_category_by_product']) {
+        for (var id_category in data['type_price_by_category_by_product'][id_product]) {
+          for (var id_type_price in data['type_price_by_category_by_product'][id_product][id_category]) {
+            if (total['type_price_by_category'][id_category] === undefined) {
+              total['type_price_by_category'][id_category] = [];
+            }
+            total['type_price_by_category'][id_category][id_type_price] = data['type_price_by_category_by_product'][id_product][id_category][id_type_price];
+          }
+        }
+      }
+    }
+    if (data['products'] !== undefined) {
+      for (var id_product in data['products']) {
+        if (for_user === false) {
+          total['total_by_product'][id_product] = data['products'][id_product];
+        }
+        total['total_by_product_by_user'][id_product] = data['products'][id_product];
+      }
+    }
+    if (data['variations'] !== undefined) {
+      for (var id_variation in data['variations']) {
+        if (for_user === false) {
+          total['total_by_variation'][id_variation] = data['variations'][id_variation];
+        }
+        total['total_by_variation_by_user'][id_variation] = data['variations'][id_variation];
+      }
+    }
+  },
+  /**
+   *
+   * @param {array} dataCart
+   * @param {int} rate_id
+   * @returns {Boolean}
+   */
+  testIfRateIsInArray: function (dataCart, product_id, rate_id) {
+    return dataCart &&
+      dataCart['attributes_by_product'] &&
+      dataCart['attributes_by_product'][product_id] &&
+      dataCart['attributes_by_product'][product_id]['attribute_type_price'] &&
+      dataCart['attributes_by_product'][product_id]['attribute_type_price'][rate_id];
+  },
+}
+;
+/**
+ * @file
+ * Defines Javascript behaviors for the hubber sale rule.
+ *
+ *This library allows the display and the hiding of variations according to the sales rules
+ *according to the actions carried out by the user on the product page.
+ *
+ * --------------------------
+ *    SPECIAL JS VARIABLE
+ * --------------------------
+ *
+ * This lib use some specials JS variables for the communication between JS and
+ *   drupal PHP code.
+ *
+ *   - drupalSettings.saleRules :
+ *
+ *     This variable was built in the hubber_sale_rule.module file.
+ *     It corresponds to the list of sales rules applicable to the product.
+ .*
+ *     drupalSettings.saleRules Array :
+ *        #plugin_id_qty# => [ // #plugin_id_qty# in 'CHECK_MIN_QTY','CHECK_MAX_QTY','CHECK_EQUAL_QTY','CHECK_MULTIPLE_QTY',
+ *          'variation' => [
+ *            #variation_id# => #valeur de la quantité#,
+ *          ],
+ *          'variation_by_order' => [
+ *            #variation_id# => #valeur de la quantité#,
+ *          ],
+ *          'variation_by_user' => [
+ *            #variation_id# => #valeur de la quantité#,
+ *          ],
+ *          'product' => [
+ *            #variation_id# => #valeur de la quantité#,
+ *          ],
+ *          'product_by_order' => [
+ *            #variation_id# => #valeur de la quantité#,
+ *          ],
+ *          'product_by_user' => [
+ *            #variation_id# => #valeur de la quantité#,
+ *          ],
+ *          'attribute' => [
+ *            #attribute_name => [
+ *              #atribute_id# => #valeur de la quantité#,
+ *            ],
+ *          ],
+ *          'attribute_by_order' => [
+ *            #attribute_name => [
+ *              #atribute_id# => #valeur de la quantité#,
+ *            ],
+ *          ],
+ *          'attribute_by_user' => [
+ *            #attribute_name => [
+ *              #atribute_id# => #valeur de la quantité#,
+ *            ],
+ *          ],
+ *          'type' => [
+ *            #type_id# => #valeur de la quantité#,
+ *          ],
+ *          'type_by_order' => [
+ *            #type_id# => #valeur de la quantité#,
+ *          ],
+ *          'type_by_user' => [
+ *            #type_id# => #valeur de la quantité#,
+ *          ],
+ *          'provider' => [
+ *            #provider_id# => #valeur de la quantité#,
+ *          ],
+ *          'provider_by_order' => [
+ *            #provider_id# => #valeur de la quantité#,
+ *          ],
+ *          'provider_by_user' => [
+ *            #provider_id# => #valeur de la quantité#,
+ *          ],
+ *          'all'=> #valeur de la quantité#,
+ *            #variation_id# => #valeur de la quantité#,
+ *          ],
+ *        ],
+ *        #plugin_id_rate# => [ // #plugin_id_rate# is 'CHECK_UNLOCKED_TICKET', 'CHECK_UNLOCKED_TICKET',
+ *          #product_id# => [
+ *            'parent' => [
+ *              #attribute_type_price_id# => [
+ *                'parent_qty' => #parent_quantity#,
+ 'child_rate' => #attribute_type_price_id#
+ 'parent_label' => #attribute_type_price_label#,
+ 'child_label' => #attribute_type_price_label#,
+ 'child_qty' => #child_quantity#,
+ *              ],
+ *            ],
+ *            child' => [
+ *              #attribute_type_price_id# => [
+ *                'parent_qty' => #parent_quantity#,
+ 'parent_rate' => #attribute_type_price_id#
+ 'parent_label' => #attribute_type_price_label#,
+ 'child_label' => #attribute_type_price_label#,
+ 'child_qty' => #child_quantity#,
+ *              ],
+ *            ],
+ *          ],
+ *        ],
+
+ * ------------
+ *    EVENTS
+ * ------------
+ *
+ * This lib trigger some events. These events are used by the lib itself and
+ *   can be used by external code.
+ *
+ *   - HTATCFEventSelectModeAuto
+ *     This event is triggered when a mode auto is selected
+ *     @param {Integer} id
+ *       Category id
+ *
+ *   - HTATCFEventSelectQtyPrices
+ *     This event is triggered when a the quantity rate is selected
+ *     @param {Integer} id_product
+ *       Product id
+ *     @param {Integer} id_cat
+ *       Category id
+ *     @param {Integer} id_type_price
+ *       ProductAttributeValue id
+ *     @param {Integer} qty_select
+ *       quantity selected
+ *
+ */
+(function ($, Drupal, drupalSettings) {
+  'use strict';
+  Drupal.behaviors.hubberSaleRulesForModeAuto = {
+    attach: function (context) {
+      var self = this;
+      $('#commerce-product-ticketing-form').once('HTATCFEventSelectQtyPricesInit').on('HTATCFEventSelectQtyPrices', function (e, id_product, id_cat, id_type_price, qty_select) {
+        if (self.testIfHasSaleRuleUnlockedRate(drupalSettings.saleRules, 'parent', id_product, id_type_price)) {
+          $.each(drupalSettings.saleRules['CHECK_UNLOCKED_TICKET'][id_product]['parent'][id_type_price], function (i) {
+            //add parent rate variation present in basket
+            var qty_parent = qty_select;
+            for (let j in this.parent_rate) {
+              let parent_rate_id = this.parent_rate[j];
+              if (id_type_price != parent_rate_id) {
+                let $input_qty_parent_price = $('.js-quantity-filter-field[data-product-id="' + id_product + '"][data-category-id="' + id_cat + '"][data-type-price-id="' + parent_rate_id + '"]');
+                if ($input_qty_parent_price.length) {
+                  qty_parent += parseInt($input_qty_parent_price.val());
+                }
+              }
+              //add data in basket
+              if (hubberSaleRulesProduct.testIfRateIsInArray(drupalSettings.dataBasketForSaleRules, id_product, parent_rate_id)) {
+                qty_parent += parseInt(drupalSettings.dataBasketForSaleRules['attributes_by_product'][id_product]['attribute_type_price'][parent_rate_id]);
+              }
+
+              //add data in past order
+              if (this.has_sale_rule_by_user && hubberSaleRulesProduct.testIfRateIsInArray(drupalSettings.dataPastOrderForSaleRules, parent_rate_id)) {
+                qty_parent += parseInt(drupalSettings.dataPastOrderForSaleRules['attributes_by_product'][id_product]['attribute_type_price'][parent_rate_id]);
+              }
+            }
+
+            var nb_rate_unlocked = Math.floor(qty_parent / this.parent_qty) * this.child_qty;
+
+            //delete child rate present in basket
+            if (hubberSaleRulesProduct.testIfRateIsInArray(drupalSettings.dataBasketForSaleRules, this.child_rate)) {
+              nb_rate_unlocked = nb_rate_unlocked - drupalSettings.dataBasketForSaleRules['attributes_by_product'][id_product]['attribute_type_price'][this.child_rate];
+            }
+
+            //delete child rate present in past order
+            if (this.has_sale_rule_by_user && hubberSaleRulesProduct.testIfRateIsInArray(drupalSettings.dataPastOrderForSaleRules, this.child_rate)) {
+              nb_rate_unlocked = nb_rate_unlocked - drupalSettings.dataPastOrderForSaleRules['attributes_by_product'][id_product]['attribute_type_price'][this.child_rate];
+            }
+
+            var select_qty_price = $('select.js-qty-prices[data-product-id="' + id_product + '"][data-category-id="' + id_cat + '"][data-type-price-id="' + this.child_rate + '"]');
+            var $input_qty_price = $('.js-quantity-filter-field[data-product-id="' + id_product + '"][data-category-id="' + id_cat + '"][data-type-price-id="' + this.child_rate + '"]');
+            $('.data-info-msg').remove();
+            if (nb_rate_unlocked > 0) {
+
+              $input_qty_price.closest('.js-form-type-number').removeClass('d-none');
+              var nb_rate = nb_rate_unlocked < select_qty_price.attr('data-max') ? parseInt(nb_rate_unlocked) : parseInt(select_qty_price.attr('data-max'));
+              //calcul value rate
+
+              $input_qty_price.attr('max', nb_rate).trigger('update');
+              var input_qty_value = parseInt($input_qty_price.val());
+              $('.data-info-msg').remove();
+              if (nb_rate < input_qty_value) {
+                $input_qty_price.val(nb_rate);
+              }
+              if (input_qty_value < nb_rate) {
+                var message = Drupal.formatPlural((nb_rate - input_qty_value), 'Your selection allows you to add 1 additional ticket of price %label', 'Your selection allows you to add @count additional tickets of price %label', {'%label': this.child_label});
+                $('.js-block-list-categories').append('<div class="data-info-msg"><span>' + message + '</span></div>');
+              }
+            }
+            else {
+              //locked child rate
+              $input_qty_price.attr('max', 0).trigger('change', 0);
+              $input_qty_price.closest('.js-form-type-number').addClass('d-none');
+            }
+          });
+        }
+        else if (self.testIfHasSaleRuleUnlockedRate(drupalSettings.saleRules, 'child', id_product, id_type_price)) {
+          $.each(drupalSettings.saleRules['CHECK_UNLOCKED_TICKET'][id_product]['child'][id_type_price], function (i) {
+            //add parent rate variation present in basket
+            var qty_child = qty_select;
+            let qty_parent = 0;
+            for (let j in this.parent_rate) {
+              let parent_rate_id = this.parent_rate[j];
+              let $input_qty_parent_price = $('.js-quantity-filter-field[data-product-id="' + id_product + '"][data-category-id="' + id_cat + '"][data-type-price-id="' + parent_rate_id + '"]');
+              if ($input_qty_parent_price.length) {
+                qty_parent += parseInt($input_qty_parent_price.val());
+              }
+
+              //add data in basket
+              if (hubberSaleRulesProduct.testIfRateIsInArray(drupalSettings.dataBasketForSaleRules, parent_rate_id)) {
+                qty_parent += parseInt(drupalSettings.dataBasketForSaleRules['attributes_by_product'][id_product]['attribute_type_price'][parent_rate_id]);
+              }
+
+              //add data in past order
+              if (this.has_sale_rule_by_user && hubberSaleRulesProduct.testIfRateIsInArray(drupalSettings.dataPastOrderForSaleRules, parent_rate_id)) {
+                qty_parent += parseInt(drupalSettings.dataPastOrderForSaleRules['attributes_by_product'][id_product]['attribute_type_price'][parent_rate_id]);
+              }
+            }
+
+            var nb_rate_unlocked = Math.floor(qty_parent / this.parent_qty) * this.child_qty;
+
+            //delete child rate present in basket
+            if (hubberSaleRulesProduct.testIfRateIsInArray(drupalSettings.dataBasketForSaleRules, this.child_rate)) {
+              nb_rate_unlocked = nb_rate_unlocked - drupalSettings.dataBasketForSaleRules['attributes_by_product'][id_product]['attribute_type_price'][this.child_rate];
+            }
+
+            //delete child rate present in past order
+            if (this.has_sale_rule_by_user && hubberSaleRulesProduct.testIfRateIsInArray(drupalSettings.dataPastOrderForSaleRules, this.child_rate)) {
+              nb_rate_unlocked = nb_rate_unlocked - drupalSettings.dataPastOrderForSaleRules['attributes_by_product'][id_product]['attribute_type_price'][this.child_rate];
+            }
+
+            $('.data-info-msg').remove();
+            if (nb_rate_unlocked > 0 && qty_child < nb_rate_unlocked) {
+              var message = Drupal.formatPlural((nb_rate_unlocked - qty_child), 'Your selection allows you to add 1 additional ticket of price %label', 'Your selection allows you to add @count additional tickets of price %label', {'%label': this.child_label});
+              $('.js-block-list-categories').append('<div class="data-info-msg"><span>' + message + '</span></div>');
+            }
+          });
+        }
+
+        var $submitExpressFormBtn = $('.js-category-auto');
+        $('.data-error-msg').remove();
+        var message = self.testIfSelectionIsValid(drupalSettings.saleRules, drupalSettings.saleRuleOrder, id_cat, id_product);
+        if (message !== undefined && message !== '') {
+          $submitExpressFormBtn.prop('disabled', true);
+          $('.js-block-list-categories').before('<div class="data-error-msg"><span>' + message + '</span></div>');
+        }
+        else {
+          $submitExpressFormBtn.prop('disabled', false);
+        }
+
+        $('#commerce-product-ticketing-form').trigger('HTATCFEventSelectQtyPricesSalesRulesChecked', [id_product, id_cat, id_type_price, qty_select]);
+      });
+
+      $(document).off('HTATCReturnToListCategories').on('HTATCReturnToListCategories', function () {
+        $('.data-error-msg, .data-info-msg').remove();
+      });
+
+      $(document).off('HTATCCategorySelected').on('HTATCCategorySelected', function (e, cat_id) {
+        $('.js-list-categories[cat_id="' + cat_id + '"] .input-number-operators').trigger('update');
+      });
+
+      if (typeof drupalSettings.saleRuleMaxNbTickets !== 'undefined') {
+        $('.js-categories-panel .select-category-hint', context).once('initDisplayMaxTickets').after('<small class="nb-tickets-hint">' + drupalSettings.saleRuleMaxNbTickets + '</small>');
+      }
+
+    },
+
+    /**
+     *
+     * @param {array} sale_rule
+     * @param {string} type
+     * @param {int} product_id
+     * @param {int} type_price_id
+     * @returns {Boolean}
+     */
+    testIfHasSaleRuleUnlockedRate: function (sale_rule, type, product_id, type_price_id) {
+      return sale_rule['CHECK_UNLOCKED_TICKET'] &&
+              sale_rule['CHECK_UNLOCKED_TICKET'][product_id] &&
+              sale_rule['CHECK_UNLOCKED_TICKET'][product_id][type] &&
+              sale_rule['CHECK_UNLOCKED_TICKET'][product_id][type][type_price_id] &&
+              sale_rule['CHECK_UNLOCKED_TICKET'][product_id][type][type_price_id].length > 0;
+    },
+
+    testIfSelectionIsValid: function (sale_rules, sale_rule_order, id_cat, id_product) {
+      if (sale_rule_order !== undefined) {
+        var total_basket = this.getTotalInForm(id_cat);
+        var msg = hubberSaleRulesProduct.testValidSaleRulesOrder(total_basket, sale_rule_order);
+        if (msg !== '') {
+          return msg;
+        }
+      }
+
+      if (sale_rules !== undefined) {
+        var has_sale_rule_by_user = sale_rules['has_sale_rule_by_user'] !== undefined ? sale_rules['has_sale_rule_by_user'] : false;
+        var total = this.getTotalInForm(id_cat, has_sale_rule_by_user);
+        var msg = hubberSaleRulesProduct.testValidSaleRulesProduct(total, sale_rules, id_product);
+        if (msg !== '') {
+          return msg;
+        }
+      }
+
+    },
+
+    getTotalInForm: function (id_cat, has_by_user = false) {
+      var total = hubberSaleRulesProduct.initTotal(has_by_user);
+
+      $('.hubber-ticketing-add-to-cart-form-commerce-product .js-list-categories[cat_id="' + id_cat + '"] .js-quantity-filter-field').each(function () {
+        var provider = $(this).attr('data-provider-id');
+        var type = $(this).attr('data-type-id');
+        var category = $(this).attr('data-category-id');
+        var type_price = $(this).attr('data-type-price-id');
+        var product = $(this).attr('data-product-id');
+        var variation = $(this).attr('data-variation-id');
+
+        if ($(this).val() > 0) {
+          total['total_basket'] = total['total_basket'] === 0 ? $(this).val() : parseInt(total['total_basket']) + parseInt($(this).val());
+          total['total_all'] = total['total_all'] === 0 ? $(this).val() : parseInt(total['total_all']) + parseInt($(this).val());
+          total['total_by_provider'][provider] = total['total_by_provider'][provider] === undefined ? $(this).val() : parseInt(total['total_by_provider'][provider]) + parseInt($(this).val());
+          total['total_by_type'][type] = total['total_by_type'][type] === undefined ? $(this).val() : parseInt(total['total_by_type'][type]) + parseInt($(this).val());
+          total['total_by_category'][category] = total['total_by_category'][category] === undefined ? $(this).val() : parseInt(total['total_by_category'][category]) + parseInt($(this).val());
+          total['total_by_type_price'][type_price] = total['total_by_type_price'][type_price] === undefined ? $(this).val() : parseInt(total['total_by_type_price'][type_price]) + parseInt($(this).val());
+          if (total['total_by_category_by_product'][product] === undefined) {
+            total['total_by_category_by_product'][product] = [];
+          }
+          total['total_by_category_by_product'][product][category] = total['total_by_category_by_product'][product][category] === undefined ? $(this).val() : parseInt(total['total_by_category_by_product'][product][category]) + parseInt($(this).val());
+          if (total['total_by_type_price_by_product'][product] === undefined) {
+            total['total_by_type_price_by_product'][product] = [];
+          }
+          total['total_by_type_price_by_product'][product][type_price] = total['total_by_type_price_by_product'][product][type_price] === undefined ? $(this).val() : parseInt(total['total_by_type_price_by_product'][product][type_price]) + parseInt($(this).val());
+
+          total['total_by_product'][product] = total['total_by_product'][product] === undefined ? $(this).val() : parseInt(total['total_by_product'][product]) + parseInt($(this).val());
+          total['total_by_variation'][variation] = total['total_by_variation'][variation] === undefined ? $(this).val() : parseInt(total['total_by_variation'][variation]) + parseInt($(this).val());
+          if (total['type_price_by_category'][category] === undefined) {
+            total['type_price_by_category'][category] = [];
+          }
+          total['type_price_by_category'][category][type_price] = total['type_price_by_category'][category][type_price] === undefined ? $(this).val() : parseInt(total['type_price_by_category'][category][type_price]) + parseInt($(this).val());
+
+          total['total_all_by_user'] = total['total_all_by_user'] === 0 ? $(this).val() : parseInt(total['total_all_by_user']) + parseInt($(this).val());
+          total['total_by_provider_by_user'][provider] = total['total_by_provider_by_user'][provider] === undefined ? $(this).val() : parseInt(total['total_by_provider_by_user'][provider]) + parseInt($(this).val());
+          total['total_by_type_by_user'][type] = total['total_by_type_by_user'][type] === undefined ? $(this).val() : parseInt(total['total_by_type_by_user'][type]) + parseInt($(this).val());
+          total['total_by_category_by_user'][category] = total['total_by_category_by_user'][category] === undefined ? $(this).val() : parseInt(total['total_by_category_by_user'][category]) + parseInt($(this).val());
+          total['total_by_type_price_by_user'][type_price] = total['total_by_type_price_by_user'][type_price] === undefined ? $(this).val() : parseInt(total['total_by_type_price_by_user'][type_price]) + parseInt($(this).val());
+          if (total['total_by_category_by_user_by_product'][product] === undefined) {
+            total['total_by_category_by_user_by_product'][product] = [];
+          }
+          total['total_by_category_by_user_by_product'][product][category] = total['total_by_category_by_user_by_product'][product][category] === undefined ? $(this).val() : parseInt(total['total_by_category_by_user_by_product'][product][category]) + parseInt($(this).val());
+          if (total['total_by_type_price_by_user_by_product'][product] === undefined) {
+            total['total_by_type_price_by_user_by_product'][product] = [];
+          }
+          total['total_by_type_price_by_user_by_product'][product][type_price] = total['total_by_type_price_by_user_by_product'][product][type_price] === undefined ? $(this).val() : parseInt(total['total_by_type_price_by_user_by_product'][product][type_price]) + parseInt($(this).val());
+          total['total_by_product_by_user'][product] = total['total_by_product_by_user'][product] === undefined ? $(this).val() : parseInt(total['total_by_product_by_user'][product]) + parseInt($(this).val());
+          total['total_by_variation_by_user'][variation] = total['total_by_variation_by_user'][variation] === undefined ? $(this).val() : parseInt(total['total_by_variation_by_user'][variation]) + parseInt($(this).val());
+
+          total['variation_label'][variation] = $(this).attr('data-variation-label');
+          total['product_label'][product] = $(this).attr('data-product-label');
+          total['category_label'][category] = $(this).attr('data-category-label');
+          total['type_price_label'][type_price] = $(this).attr('data-type-price-label');
+        }
+      });
+
+      return total;
+    },
+
+  }
+})(jQuery, Drupal, drupalSettings);
+;
